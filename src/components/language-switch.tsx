@@ -13,10 +13,10 @@ export function LanguageSwitch({ locale }: { locale: Locale }) {
   const reduce = useReducedMotion();
 
   return (
-    <div className="relative flex h-9 w-20 items-center rounded-full bg-apple-deep/10 p-1">
+    <div className="relative flex h-9 w-[4.5rem] items-center rounded-full bg-bark/10 p-1">
       <motion.span
         aria-hidden
-        className="absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full bg-cider"
+        className="absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full bg-pour"
         animate={{ x: locale === "es" ? "100%" : "0%" }}
         transition={
           reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }
@@ -27,8 +27,8 @@ export function LanguageSwitch({ locale }: { locale: Locale }) {
           key={option}
           href={swapLocale(pathname, option)}
           hrefLang={option}
-          className={`relative z-10 flex-1 text-center text-xs tracking-[0.14em] uppercase ${
-            locale === option ? "text-ink" : "text-wood"
+          className={`relative z-10 flex-1 text-center text-xs font-medium tracking-[0.08em] uppercase ${
+            locale === option ? "text-bark" : "text-haze"
           }`}
         >
           {option}

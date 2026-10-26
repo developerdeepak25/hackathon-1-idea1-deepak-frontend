@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
-import { Fraunces, Source_Sans_3 } from "next/font/google";
+import { Commissioner, Young_Serif } from "next/font/google";
 import { Providers } from "./providers";
 import "./globals.css";
 
-const heading = Fraunces({
+const heading = Young_Serif({
+  weight: "400",
   variable: "--font-heading",
   subsets: ["latin"],
 });
 
-const body = Source_Sans_3({
+const body = Commissioner({
   variable: "--font-body",
   subsets: ["latin"],
 });
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      data-scroll-behavior="smooth"
       className={`${heading.variable} ${body.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans">

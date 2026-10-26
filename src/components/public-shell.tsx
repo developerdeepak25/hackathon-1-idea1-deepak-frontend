@@ -16,7 +16,7 @@ export function PublicShell({
     <div className="flex min-h-full flex-1 flex-col">
       <SiteHeader locale={locale} copy={copy} />
       <div className="flex-1">{children}</div>
-      <SiteFooter copy={copy} />
+      <SiteFooter locale={locale} copy={copy} />
     </div>
   );
 }

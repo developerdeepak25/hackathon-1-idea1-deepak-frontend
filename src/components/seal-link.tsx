@@ -5,9 +5,9 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 const tones = {
-  gold: "bg-cider text-ink",
-  line: "border border-cider/70 text-cream",
-  apple: "bg-apple text-cream",
+  gold: "bg-pour text-bark hover:bg-[#d4a24e]",
+  line: "border border-bark/30 text-bark hover:border-bark",
+  apple: "bg-leaf text-foam hover:bg-leaf-deep",
 };
 
 type SealLinkProps = {
@@ -19,14 +19,14 @@ type SealLinkProps = {
 
 export function SealLink({ href, children, tone, className = "" }: SealLinkProps) {
   const reduce = useReducedMotion();
-  const face = `relative z-10 inline-flex items-center justify-center rounded-full px-6 py-3 text-center font-medium ${tones[tone]} ${className}`;
+  const face = `relative z-10 inline-flex items-center justify-center rounded-full px-6 py-3 text-center font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf ${tones[tone]} ${className}`;
 
   const body = (
     <>
       {/* One outward ring on press, like a wax seal. The face only sinks. */}
       <motion.span
         aria-hidden
-        className="pointer-events-none absolute inset-0 rounded-full border border-wood"
+        className="pointer-events-none absolute inset-0 rounded-full border border-bark opacity-0"
         variants={{
           rest: { opacity: 0, scale: 1 },
           press: {
@@ -52,6 +52,7 @@ export function SealLink({ href, children, tone, className = "" }: SealLinkProps
     <motion.div
       className={`relative inline-flex ${className.includes("w-full") ? "w-full" : ""}`}
       initial="rest"
+      animate="rest"
       whileTap={reduce ? undefined : "press"}
       variants={{ rest: { y: 0 }, press: { y: 2 } }}
     >
