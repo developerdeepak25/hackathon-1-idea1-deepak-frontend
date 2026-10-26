@@ -1,28 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiUrl, getHealth, type HealthResponse } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { apiUrl, getApiErrorMessage, getHealth } from "@/lib/api";
 
 export default function Home() {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-
-    getHealth()
-      .then((result) => {
-        if (active) setHealth(result);
-      })
-      .catch((err: unknown) => {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : "Could not reach the API");
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { data: health, error, isPending, isError } = useQuery({
+    queryKey: ["health"],
+    queryFn: getHealth,
+  });
 
   return (
     <div className="flex flex-1 items-center justify-center bg-zinc-50 px-6 py-16 font-sans dark:bg-black">
@@ -49,12 +34,12 @@ export default function Home() {
               className={`rounded-full px-3 py-1 text-sm font-medium ${
                 health
                   ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                  : error
+                  : isError
                     ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
                     : "bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300"
               }`}
             >
-              {health ? "Connected" : error ? "Unavailable" : "Checking"}
+              {health ? "Connected" : isError ? "Unavailable" : "Checking"}
             </span>
           </div>
           <p className="mt-3 font-mono text-sm text-zinc-500">{apiUrl}/health</p>
@@ -69,15 +54,23 @@ export default function Home() {
                 <dd>{health.service}</dd>
               </div>
               <div className="flex justify-between gap-4">
+                <dt>Database</dt>
+                <dd>{health.database}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
                 <dt>Timestamp</dt>
                 <dd className="text-right">{health.timestamp}</dd>
               </div>
             </dl>
           ) : null}
-          {error ? (
+          {isError ? (
             <p className="mt-4 text-sm text-red-700 dark:text-red-300">
-              {error}. From the api folder, run <code>npm run start:dev</code>.
+              {getApiErrorMessage(error)}. From the api folder, run{" "}
+              <code>npm run start:dev</code>.
             </p>
+          ) : null}
+          {isPending ? (
+            <p className="mt-4 text-sm text-zinc-500">Checking the API.</p>
           ) : null}
         </section>
       </main>
