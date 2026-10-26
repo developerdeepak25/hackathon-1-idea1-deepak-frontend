@@ -74,8 +74,42 @@ function weekday(iso: string) {
   return parseDay(iso).getUTCDay();
 }
 
-export function biggestTable() {
-  return Math.max(...tables.filter((table) => table.active).map((table) => table.seats));
+export type BookingRecord = {
+  id: string;
+  date: string;
+  time: string;
+  name: string;
+  phone: string;
+  email: string;
+  adults: number;
+  children: number;
+  seats: number;
+  tableId: string;
+};
+
+export type HouseEvent = {
+  id: string;
+  title: string;
+  date: string;
+  description: string;
+  capacity: number;
+  price: string;
+  published: boolean;
+};
+
+export type HouseView = {
+  tables: Table[];
+  openWeekdays: number[];
+  lastArrival: string;
+  closedDates: string[];
+  maxParty: number;
+  bookings: BookingRecord[];
+};
+
+export function biggestTable(list: Table[] = tables) {
+  const active = list.filter((table) => table.active);
+  if (!active.length) return 0;
+  return Math.max(...active.map((table) => table.seats));
 }
 
 // Next Thursday that is still inside the 28-day window.
@@ -97,10 +131,12 @@ export function heldTableIds(today: string, date: string) {
   return new Set(["t7", "t8"]);
 }
 
-export function dayState(iso: string, today: string): DayState {
+export function dayState(iso: string, today: string, view?: HouseView): DayState {
   if (iso < today) return "past";
-  if (iso === sampleClosedDate(today)) return "closed";
-  if (!openWeekdays.has(weekday(iso))) return "shut";
+  const closed = view ? view.closedDates.includes(iso) : iso === sampleClosedDate(today);
+  if (closed) return "closed";
+  const open = view ? new Set(view.openWeekdays) : openWeekdays;
+  if (!open.has(weekday(iso))) return "shut";
   return "open";
 }
 
@@ -108,20 +144,20 @@ export function bookingWindow(today: string) {
   return Array.from({ length: 28 }, (_, index) => addDays(today, index));
 }
 
-export function calendarCells(today: string) {
+export function calendarCells(today: string, view?: HouseView) {
   const days = bookingWindow(today);
   const lead = (weekday(days[0]) + 6) % 7;
   const cells: ({ iso: string; state: DayState } | null)[] = [
     ...Array.from({ length: lead }, () => null),
-    ...days.map((iso) => ({ iso, state: dayState(iso, today) })),
+    ...days.map((iso) => ({ iso, state: dayState(iso, today, view) })),
   ];
   while (cells.length % 7) cells.push(null);
   return cells;
 }
 
-export function arrivalSlots() {
+export function arrivalSlots(cutoff = lastArrival) {
   const [startHour, startMinute] = lunchStart.split(":").map(Number);
-  const [endHour, endMinute] = lastArrival.split(":").map(Number);
+  const [endHour, endMinute] = cutoff.split(":").map(Number);
   const slots: string[] = [];
   let minutes = startHour * 60 + startMinute;
   const end = endHour * 60 + endMinute;
@@ -135,14 +171,26 @@ export function arrivalSlots() {
 }
 
 // Smallest free table that fits. Adults and children both take a seat.
-export function assignTable(today: string, date: string, seats: number): PartyResult {
+export function assignTable(
+  today: string,
+  date: string,
+  seats: number,
+  view?: HouseView,
+): PartyResult {
+  const list = view?.tables ?? tables;
+  const limit = view?.maxParty ?? maxParty;
   if (seats < 1) return { ok: false, reason: "need-adult" };
-  if (seats > maxParty) return { ok: false, reason: "above-max" };
-  const largest = biggestTable();
+  if (seats > limit) return { ok: false, reason: "above-max" };
+  const largest = biggestTable(list);
   if (seats > largest) return { ok: false, reason: "no-table" };
 
   const taken = heldTableIds(today, date);
-  const fit = tables
+  if (view) {
+    for (const booking of view.bookings) {
+      if (booking.date === date) taken.add(booking.tableId);
+    }
+  }
+  const fit = list
     .filter((table) => table.active && !taken.has(table.id) && table.seats >= seats)
     .sort((a, b) => a.seats - b.seats);
 

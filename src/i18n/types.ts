@@ -34,7 +34,7 @@ export type Copy = {
   };
   menuItems: { name: string; note: string; price: string }[];
   valley: { title: string; body: string; place: string };
-  gatherings: { title: string; emptyTitle: string; empty: string };
+  gatherings: { title: string; emptyTitle: string; empty: string; places: string };
   footer: { place: string; hours: string; season: string };
   book: {
     eyebrow: string;
@@ -84,6 +84,46 @@ export type Copy = {
     partyJoin: string;
     tableLine: string;
     again: string;
+  };
+  admin: {
+    title: string;
+    intro: string;
+    email: string;
+    password: string;
+    passwordError: string;
+    loginError: string;
+    enter: string;
+    leave: string;
+    floor: string;
+    schedule: string;
+    bookings: string;
+    events: string;
+    addTable: string;
+    seats: string;
+    tableName: string;
+    onFloor: string;
+    putAway: string;
+    dragHint: string;
+    openDays: string;
+    days: [string, string, string, string];
+    lastArrival: string;
+    closedDays: string;
+    closeDay: string;
+    noClosed: string;
+    reopen: string;
+    maxParty: string;
+    noBookings: string;
+    partyLine: string;
+    eventTitle: string;
+    eventDate: string;
+    eventDescription: string;
+    eventCapacity: string;
+    eventPrice: string;
+    published: string;
+    draft: string;
+    addEvent: string;
+    emptyEvents: string;
+    saveEvent: string;
   };
 };
 

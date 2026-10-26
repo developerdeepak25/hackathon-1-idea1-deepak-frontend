@@ -2,12 +2,15 @@
 
 import { motion, useReducedMotion } from "motion/react";
 import type { Copy, Locale } from "@/i18n/types";
+import { useHouse } from "@/state/house-store";
 import { PublicShell } from "./public-shell";
 import { Reveal } from "./reveal";
 import { SealLink } from "./seal-link";
 
 export function HousePage({ locale, copy }: { locale: Locale; copy: Copy }) {
   const reduce = useReducedMotion();
+  const { state } = useHouse();
+  const published = state.events.filter((event) => event.published);
 
   return (
     <PublicShell locale={locale} copy={copy}>
@@ -145,10 +148,26 @@ export function HousePage({ locale, copy }: { locale: Locale; copy: Copy }) {
         <section id="gatherings" className="bg-leaf text-foam">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:py-20">
             <h2 className="max-w-xl font-serif text-5xl leading-tight">{copy.gatherings.title}</h2>
-            <div className="mt-8 max-w-xl border-t border-pour pt-6">
-              <p className="font-serif text-3xl">{copy.gatherings.emptyTitle}</p>
-              <p className="mt-4 max-w-lg text-lg leading-8 text-foam/80">{copy.gatherings.empty}</p>
-            </div>
+            {published.length === 0 ? (
+              <div className="mt-8 max-w-xl border-t border-pour pt-6">
+                <p className="font-serif text-3xl">{copy.gatherings.emptyTitle}</p>
+                <p className="mt-4 max-w-lg text-lg leading-8 text-foam/80">{copy.gatherings.empty}</p>
+              </div>
+            ) : (
+              <ul className="mt-8 grid gap-4 sm:grid-cols-2">
+                {published.map((event) => (
+                  <li key={event.id} className="border-t border-pour pt-5">
+                    <p className="text-sm text-foam/70">{event.date}</p>
+                    <p className="mt-2 font-serif text-3xl">{event.title}</p>
+                    <p className="mt-3 leading-7 text-foam/80">{event.description}</p>
+                    <p className="mt-4 text-sm text-stave">
+                      {copy.gatherings.places.replace("{n}", String(event.capacity))}
+                      {event.price ? `, ${event.price}` : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="mt-8">
               <SealLink href={`/${locale}/book`} tone="gold">
                 {copy.nav.book}

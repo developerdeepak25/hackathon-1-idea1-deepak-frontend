@@ -13,7 +13,7 @@ export function LanguageSwitch({ locale }: { locale: Locale }) {
   const reduce = useReducedMotion();
 
   return (
-    <div className="relative flex h-9 w-[4.5rem] items-center rounded-full bg-bark/10 p-1">
+    <div className="relative flex h-11 w-[5.25rem] items-center rounded-full bg-bark/10 p-1">
       <motion.span
         aria-hidden
         className="absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-full bg-pour"

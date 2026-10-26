@@ -12,12 +12,11 @@ import {
   calendarCells,
   childPrice,
   logHouse,
-  maxParty,
   sampleBusyDate,
-  tables,
   type DayState,
   type PartyReason,
 } from "@/mocks/house";
+import { houseView, useHouse } from "@/state/house-store";
 import { Stamp } from "./stamp";
 
 type Step = "date" | "time" | "party" | "details" | "done";
@@ -97,6 +96,8 @@ export function BookingFlow({
   today: string;
 }) {
   const reduce = useReducedMotion();
+  const { state: stored, addBooking } = useHouse();
+  const state = houseView(stored, today);
   const book = copy.book;
   const [step, setStep] = useState<Step>("date");
   const [direction, setDirection] = useState(1);
@@ -117,8 +118,8 @@ export function BookingFlow({
 
   const seats = adults + children;
   const total = adults * adultPrice + children * childPrice;
-  const cells = calendarCells(today);
-  const table = tables.find((item) => item.id === tableId);
+  const cells = calendarCells(today, state);
+  const table = state.tables.find((item) => item.id === tableId);
 
   function go(next: Step, dir: 1 | -1) {
     setDirection(dir);
@@ -127,9 +128,9 @@ export function BookingFlow({
 
   function partyMessage(reason: PartyReason) {
     if (reason === "need-adult") return book.needAdult;
-    if (reason === "above-max") return fill(book.aboveMax, { max: maxParty });
+    if (reason === "above-max") return fill(book.aboveMax, { max: state.maxParty });
     if (reason === "no-table") {
-      return fill(book.noTable, { seats, largest: biggestTable() });
+      return fill(book.noTable, { seats, largest: biggestTable(state.tables) });
     }
     return fill(book.full, { seats });
   }
@@ -159,7 +160,7 @@ export function BookingFlow({
 
     if (step === "party") {
       if (!date) return;
-      const result = assignTable(today, date, seats);
+      const result = assignTable(today, date, seats, state);
       if (!result.ok) {
         setError(partyMessage(result.reason));
         logHouse("party refused", { date, seats, reason: result.reason });
@@ -181,7 +182,7 @@ export function BookingFlow({
       setFieldErrors(nextErrors);
       if (nextErrors.name || nextErrors.phone || nextErrors.email || !date || !time) return;
 
-      const result = assignTable(today, date, seats);
+      const result = assignTable(today, date, seats, state);
       if (!result.ok) {
         setError(partyMessage(result.reason));
         go("party", -1);
@@ -189,9 +190,14 @@ export function BookingFlow({
       }
 
       setTableId(result.tableId);
-      logHouse("booking confirmed locally", {
+      addBooking({
         date,
         time,
+        name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        adults,
+        children,
         seats,
         tableId: result.tableId,
       });
@@ -369,7 +375,7 @@ export function BookingFlow({
                   </p>
                   <p className="mt-2 text-haze">{book.timeHint}</p>
                   <div className="mt-6 flex flex-wrap gap-3">
-                    {arrivalSlots().map((slot) => (
+                    {arrivalSlots(state.lastArrival).map((slot) => (
                       <Stamp key={slot}>
                         <button
                           type="button"
