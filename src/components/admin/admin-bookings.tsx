@@ -212,6 +212,8 @@ export function AdminBookings({ copy, today }: { copy: Copy; today: string }) {
                     {booking.phone}
                     {", "}
                     {booking.email}
+                    {" · "}
+                    {booking.status === "cancelled" ? copy.guest.cancelled : copy.guest.confirmed}
                   </p>
                 </li>
               ))}

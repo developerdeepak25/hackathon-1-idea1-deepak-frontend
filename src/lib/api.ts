@@ -4,6 +4,8 @@ export const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
 
 const tokenKey = "iturrieta-token";
+const guestTokenKey = "iturrieta-guest-token";
+const guestTokenEvent = "iturrieta:guest-token";
 
 export const api = axios.create({
   baseURL: apiUrl,
@@ -21,8 +23,15 @@ export function setOwnerToken(token: string | null) {
 }
 
 api.interceptors.request.use((config) => {
+  const url = config.url ?? "";
+  const isGuestRequest =
+    url.startsWith("/guests") ||
+    (url === "/bookings" && config.method === "post") ||
+    url.endsWith("/cancel");
   const token = getOwnerToken();
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (token && !isGuestRequest && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 
@@ -39,6 +48,62 @@ export async function loginOwner(email: string, password: string) {
 
 export async function getOwner() {
   const { data } = await api.get<{ email: string }>("/auth/me");
+  return data;
+}
+
+export type GuestSession = {
+  id: string;
+  email: string;
+  name: string;
+  token: string;
+};
+
+export type GuestProfile = Omit<GuestSession, "token">;
+
+export function getGuestToken() {
+  if (typeof window === "undefined") return null;
+  return sessionStorage.getItem(guestTokenKey);
+}
+
+export function setGuestToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (token) sessionStorage.setItem(guestTokenKey, token);
+  else sessionStorage.removeItem(guestTokenKey);
+  window.dispatchEvent(new Event(guestTokenEvent));
+}
+
+export function subscribeToGuestToken(callback: () => void) {
+  window.addEventListener(guestTokenEvent, callback);
+  return () => window.removeEventListener(guestTokenEvent, callback);
+}
+
+export function hasGuestToken() {
+  return Boolean(getGuestToken());
+}
+
+function guestAuth() {
+  const token = getGuestToken();
+  return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+}
+
+export async function registerGuest(input: {
+  email: string;
+  name: string;
+  password: string;
+}) {
+  const { data } = await api.post<GuestSession>("/guests/register", input);
+  setGuestToken(data.token);
+  return data;
+}
+
+export async function loginGuest(email: string, password: string) {
+  const { data } = await api.post<GuestSession>("/guests/login", { email, password });
+  setGuestToken(data.token);
+  return data;
+}
+
+export async function getGuest() {
+  const { data } = await api.get<GuestProfile>("/guests/me", guestAuth());
   return data;
 }
 
@@ -108,7 +173,6 @@ export async function checkAvailability(input: {
   return data;
 }
 
-// One confirmed booking row, public on the confirmation and owner list.
 export type BookingRow = {
   id: string;
   date: string;
@@ -119,12 +183,11 @@ export type BookingRow = {
   adults: number;
   children: number;
   seats: number;
+  total: number;
   table: string;
   status: string;
 };
 
-// Raised when the API refuses a booking with a reason instead of an error
-// page, so the flow can answer in words.
 export class ApiRefused extends Error {
   reason: string;
   maxParty?: number;
@@ -141,13 +204,12 @@ export async function createBooking(input: {
   time: string;
   name: string;
   phone: string;
-  email: string;
   adults: number;
   children: number;
   requestId: string;
 }) {
   try {
-    const { data } = await api.post<BookingRow>("/bookings", input);
+    const { data } = await api.post<BookingRow>("/bookings", input, guestAuth());
     return data;
   } catch (error) {
     if (axios.isAxiosError(error) && error.response?.status === 409) {
@@ -158,7 +220,16 @@ export async function createBooking(input: {
   }
 }
 
-// One day's rows for the owner, each with its arrival slot.
+export async function getGuestBookings() {
+  const { data } = await api.get<BookingRow[]>("/guests/bookings", guestAuth());
+  return data;
+}
+
+export async function cancelGuestBooking(id: string) {
+  const { data } = await api.post<BookingRow>(`/bookings/${id}/cancel`, {}, guestAuth());
+  return data;
+}
+
 export async function getOwnerBookings(date: string) {
   const { data } = await api.get<BookingRow[]>("/bookings", { params: { date } });
   return data;

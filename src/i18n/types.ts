@@ -10,6 +10,8 @@ export type Copy = {
     menu: string;
     gatherings: string;
     admin: string;
+    signIn: string;
+    myBookings: string;
     book: string;
     open: string;
     close: string;
@@ -92,6 +94,37 @@ export type Copy = {
     partyJoin: string;
     tableLine: string;
     again: string;
+  };
+  guest: {
+    accountTitle: string;
+    accountIntro: string;
+    bookingsTitle: string;
+    bookingsIntro: string;
+    name: string;
+    email: string;
+    password: string;
+    nameError: string;
+    emailError: string;
+    passwordError: string;
+    signIn: string;
+    register: string;
+    createAccount: string;
+    switchToSignIn: string;
+    switchToRegister: string;
+    loginError: string;
+    emailTaken: string;
+    apiDown: string;
+    signOut: string;
+    emptyBookings: string;
+    cancel: string;
+    cancelError: string;
+    started: string;
+    confirmed: string;
+    cancelled: string;
+    total: string;
+    seats: string;
+    accountRequired: string;
+    signInToBook: string;
   };
   admin: {
     title: string;

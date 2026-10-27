@@ -3,8 +3,9 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import type { Copy, Locale } from "@/i18n/types";
+import { hasGuestToken, setGuestToken, subscribeToGuestToken } from "@/lib/api";
 import { LanguageSwitch } from "./language-switch";
 import { AppleMark } from "./motifs";
 import { SealLink } from "./seal-link";
@@ -16,6 +17,7 @@ export function SiteHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
   const router = useRouter();
   const reduce = useReducedMotion();
   const [open, setOpen] = useState(false);
+  const signedIn = useSyncExternalStore(subscribeToGuestToken, hasGuestToken, () => false);
   const links = [
     { href: `/${locale}#house`, label: copy.nav.house },
     { href: `/${locale}#txotx`, label: copy.nav.txotx },
@@ -23,6 +25,7 @@ export function SiteHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
     { href: `/${locale}#gatherings`, label: copy.nav.gatherings },
   ];
   const adminHref = `/${locale}/admin`;
+  const accountHref = `/${locale}/account`;
 
   function go(href: string) {
     setOpen(false);
@@ -56,25 +59,37 @@ export function SiteHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
             ))}
           </nav>
           <LanguageSwitch locale={locale} />
-          <Link
-            href={adminHref}
-            className="rounded-full border border-bark/25 px-4 py-2 text-sm text-bark transition-colors hover:bg-bark/5 focus-visible:outline-leaf"
-          >
-            {copy.nav.admin}
-          </Link>
+          {!signedIn ? (
+            <>
+              <Link
+                href={adminHref}
+                className="rounded-full border border-bark/25 px-4 py-2 text-sm text-bark transition-colors hover:bg-bark/5 focus-visible:outline-leaf"
+              >
+                {copy.nav.admin}
+              </Link>
+              <Link href={accountHref} className={linkClass}>
+                {copy.nav.signIn}
+              </Link>
+            </>
+          ) : (
+            <AccountMenu locale={locale} copy={copy} reduce={reduce} />
+          )}
           <SealLink href={`/${locale}/book`} tone="apple" className="px-4 py-2 text-sm">
             {copy.nav.book}
           </SealLink>
         </div>
 
-        <button
-          type="button"
-          className="border-b border-bark/30 px-1 py-2 text-sm text-bark lg:hidden"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          {open ? copy.nav.close : copy.nav.open}
-        </button>
+        <div className="flex items-center gap-3 lg:hidden">
+          {signedIn ? <AccountMenu locale={locale} copy={copy} reduce={reduce} /> : null}
+          <button
+            type="button"
+            className="border-b border-bark/30 px-1 py-2 text-sm text-bark"
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? copy.nav.close : copy.nav.open}
+          </button>
+        </div>
       </div>
 
       <AnimatePresence initial={false}>
@@ -103,16 +118,30 @@ export function SiteHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
               <div className="px-1 py-3">
                 <LanguageSwitch locale={locale} />
               </div>
-              <Link
-                href={adminHref}
-                className="mt-1 w-full rounded-full border border-bark/25 px-4 py-2.5 text-center text-sm text-bark"
-                onClick={(event) => {
-                  event.preventDefault();
-                  go(adminHref);
-                }}
-              >
-                {copy.nav.admin}
-              </Link>
+              {!signedIn ? (
+                <div className="mt-1 flex items-center justify-between border-t border-bark/10 px-1 pt-3 text-sm">
+                  <Link
+                    href={accountHref}
+                    className={linkClass}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      go(accountHref);
+                    }}
+                  >
+                    {copy.nav.signIn}
+                  </Link>
+                  <Link
+                    href={adminHref}
+                    className="rounded-full border border-bark/25 px-4 py-2 text-sm text-bark transition-colors hover:bg-bark/5 focus-visible:outline-leaf"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      go(adminHref);
+                    }}
+                  >
+                    {copy.nav.admin}
+                  </Link>
+                </div>
+              ) : null}
               <SealLink href={`/${locale}/book`} tone="apple" className="mt-1 w-full">
                 {copy.nav.book}
               </SealLink>
@@ -121,5 +150,92 @@ export function SiteHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
         ) : null}
       </AnimatePresence>
     </header>
+  );
+}
+
+function AccountMenu({
+  locale,
+  copy,
+  reduce,
+}: {
+  locale: Locale;
+  copy: Copy;
+  reduce: boolean | null;
+}) {
+  const router = useRouter();
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountHref = `/${locale}/account`;
+  const bookingsHref = `/${locale}/bookings`;
+
+  function go(href: string) {
+    setAccountOpen(false);
+    router.push(href);
+  }
+
+  function signOut() {
+    setGuestToken(null);
+    setAccountOpen(false);
+    router.push(accountHref);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label={copy.guest.accountTitle}
+        aria-expanded={accountOpen}
+        onClick={() => setAccountOpen((value) => !value)}
+        className="grid h-10 w-10 place-items-center rounded-full border border-bark/20 text-bark transition-colors hover:bg-bark/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none">
+          <circle cx="12" cy="8" r="3.25" stroke="currentColor" strokeWidth="1.6" />
+          <path
+            d="M5.5 20c.45-3.55 2.85-5.5 6.5-5.5s6.05 1.95 6.5 5.5"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+      <AnimatePresence>
+        {accountOpen ? (
+          <motion.div
+            initial={reduce ? false : { opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduce ? undefined : { opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full z-30 mt-2 grid min-w-44 gap-1 border border-bark/10 bg-valley p-2 shadow-lg"
+          >
+            <Link
+              href={bookingsHref}
+              onClick={(event) => {
+                event.preventDefault();
+                go(bookingsHref);
+              }}
+              className="px-3 py-2 text-sm text-bark hover:bg-bark/5 focus-visible:outline-leaf"
+            >
+              {copy.nav.myBookings}
+            </Link>
+            <Link
+              href={accountHref}
+              onClick={(event) => {
+                event.preventDefault();
+                go(accountHref);
+              }}
+              className="px-3 py-2 text-sm text-bark hover:bg-bark/5 focus-visible:outline-leaf"
+            >
+              {copy.guest.accountTitle}
+            </Link>
+            <button
+              type="button"
+              onClick={signOut}
+              className="border-t border-bark/10 px-3 py-2 text-left text-sm text-haze hover:bg-bark/5 hover:text-bark focus-visible:outline-leaf"
+            >
+              {copy.guest.signOut}
+            </button>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
   );
 }

@@ -2,13 +2,19 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import type { Copy, Locale } from "@/i18n/types";
 import {
   ApiRefused,
   checkAvailability,
   createBooking,
+  getGuest,
+  getGuestToken,
   getSchedule,
+  setGuestToken,
+  type GuestProfile,
   type BookingRow,
 } from "@/lib/api";
 import { calendarCells, type CalendarCell } from "@/lib/schedule";
@@ -99,6 +105,7 @@ export function BookingFlow({
   today: string;
 }) {
   const reduce = useReducedMotion();
+  const router = useRouter();
   const book = copy.book;
   const [step, setStep] = useState<Step>("date");
   const [direction, setDirection] = useState(1);
@@ -108,23 +115,29 @@ export function BookingFlow({
   const [children, setChildren] = useState(0);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{
     name?: string;
     phone?: string;
-    email?: string;
   }>({});
   const [confirmed, setConfirmed] = useState<BookingRow | null>(null);
   const [checking, setChecking] = useState(false);
   const [sending, setSending] = useState(false);
   // The table the availability answer promised, shown on the details step.
   const [tablePreview, setTablePreview] = useState<string | null>(null);
+  const [guest, setGuest] = useState<GuestProfile | null>(null);
   // A synchronous lock: React state updates do not land between two clicks in
   // the same tick, so a ref is what really stops a double-submit from firing
   // two POSTs and two tables.
   const submitting = useRef(false);
   const requestId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!getGuestToken()) return;
+    getGuest()
+      .then(setGuest)
+      .catch(() => setGuestToken(null));
+  }, []);
 
   // The lunch rules come from the API, not from the mock, so the calendar,
   // the chips, and the prices are whatever the owner has set.
@@ -214,10 +227,13 @@ export function BookingFlow({
       const nextErrors = {
         name: name.trim().length < 2 ? book.nameError : undefined,
         phone: phone.replace(/\D/g, "").length < 6 ? book.phoneError : undefined,
-        email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? undefined : book.emailError,
       };
       setFieldErrors(nextErrors);
-      if (nextErrors.name || nextErrors.phone || nextErrors.email || !date || !time) return;
+      if (nextErrors.name || nextErrors.phone || !date || !time) return;
+      if (!getGuestToken()) {
+        router.push(`/${locale}/account?returnTo=/${locale}/book`);
+        return;
+      }
       if (submitting.current) return;
 
       submitting.current = true;
@@ -228,7 +244,6 @@ export function BookingFlow({
           time,
           name: name.trim(),
           phone: phone.trim(),
-          email: email.trim(),
           adults,
           children,
           requestId: requestId.current ?? (requestId.current = crypto.randomUUID()),
@@ -268,7 +283,6 @@ export function BookingFlow({
     setChildren(0);
     setName("");
     setPhone("");
-    setEmail("");
     setConfirmed(null);
     setFieldErrors({});
     setError("");
@@ -547,18 +561,21 @@ export function BookingFlow({
                       setFieldErrors((current) => ({ ...current, phone: undefined }));
                     }}
                   />
-                  <Field
-                    label={book.email}
-                    value={email}
-                    autoComplete="email"
-                    inputMode="email"
-                    error={fieldErrors.email}
-                    onChange={(value) => {
-                      requestId.current = null;
-                      setEmail(value);
-                      setFieldErrors((current) => ({ ...current, email: undefined }));
-                    }}
-                  />
+                  {guest ? (
+                    <p className="mt-5 border-t border-bark/10 pt-4 text-sm text-haze">
+                      {book.email}: <span className="text-bark">{guest.email}</span>
+                    </p>
+                  ) : (
+                    <div className="mt-5 border-t border-bark/10 pt-4">
+                      <p className="text-sm text-haze">{copy.guest.accountRequired}</p>
+                      <Link
+                        href={`/${locale}/account?returnTo=/${locale}/book`}
+                        className="mt-3 inline-block text-sm text-leaf underline-offset-4 hover:underline"
+                      >
+                        {copy.guest.signInToBook}
+                      </Link>
+                    </div>
+                  )}
                   <FieldError message={error} />
                   <StepActions
                     book={book}
@@ -592,10 +609,7 @@ export function BookingFlow({
                     />
                   </dl>
                   <p className="mt-4 text-haze">
-                    {fill(book.priceNote, {
-                      total: confirmed.adults * (rules?.adultPrice ?? 45) +
-                        confirmed.children * (rules?.childPrice ?? 16),
-                    })}
+                    {fill(book.priceNote, { total: confirmed.total })}
                   </p>
                   <div className="mt-8">
                     <Stamp>
