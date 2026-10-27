@@ -5,10 +5,10 @@ import type { Copy, Locale } from "@/i18n/types";
 import { getOwner, getOwnerToken, loginOwner, setOwnerToken } from "@/lib/api";
 import { AdminBookings } from "./admin-bookings";
 import { AdminEvents } from "./admin-events";
-import { AdminFloor } from "./admin-floor";
 import { AdminSchedule } from "./admin-schedule";
 
-const sections = ["floor", "schedule", "bookings", "events"] as const;
+// The floor plan is temporarily disabled until its layout can be persisted.
+const sections = ["schedule", "bookings", "events"] as const;
 type Section = (typeof sections)[number];
 
 export function AdminApp({ copy, today }: { copy: Copy; locale: Locale; today: string }) {
@@ -19,7 +19,7 @@ export function AdminApp({ copy, today }: { copy: Copy; locale: Locale; today: s
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [section, setSection] = useState<Section>("floor");
+  const [section, setSection] = useState<Section>("schedule");
 
   useEffect(() => {
     sessionStorage.removeItem("iturrieta-owner");
@@ -103,7 +103,6 @@ export function AdminApp({ copy, today }: { copy: Copy; locale: Locale; today: s
   }
 
   const labels: Record<Section, string> = {
-    floor: admin.floor,
     schedule: admin.schedule,
     bookings: admin.bookings,
     events: admin.events,
@@ -136,7 +135,6 @@ export function AdminApp({ copy, today }: { copy: Copy; locale: Locale; today: s
         ))}
       </div>
       <div className="mt-8">
-        {section === "floor" && <AdminFloor copy={copy} />}
         {section === "schedule" && <AdminSchedule copy={copy} today={today} />}
         {section === "bookings" && <AdminBookings copy={copy} today={today} />}
         {section === "events" && <AdminEvents copy={copy} today={today} />}

@@ -9,6 +9,7 @@ export type Copy = {
     txotx: string;
     menu: string;
     gatherings: string;
+    admin: string;
     book: string;
     open: string;
     close: string;
@@ -54,7 +55,6 @@ export type Copy = {
     shut: string;
     timeHint: string;
     chooseTime: string;
-    busy: string;
     adults: string;
     children: string;
     fewerAdults: string;
@@ -64,9 +64,12 @@ export type Copy = {
     seats: string;
     priceNote: string;
     aboveMax: string;
+    aboveMaxFallback: string;
     noTable: string;
     full: string;
     needAdult: string;
+    apiDown: string;
+    requestConflict: string;
     name: string;
     phone: string;
     email: string;
@@ -76,6 +79,11 @@ export type Copy = {
     confirmed: string;
     confirmedTitle: string;
     held: string;
+    checkingAvailability: string;
+    confirmingBooking: string;
+    confirmBooking: string;
+    tablePreview: string;
+    tableAssigned: string;
     arrival: string;
     adultOne: string;
     adultMany: string;
@@ -98,6 +106,13 @@ export type Copy = {
     schedule: string;
     bookings: string;
     events: string;
+    dateRange: string;
+    apply: string;
+    cancel: string;
+    bookingsPagination: string;
+    paginationSummary: string;
+    previousPage: string;
+    nextPage: string;
     addTable: string;
     seats: string;
     tableName: string;

@@ -1,22 +1,17 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Copy, Locale } from "@/i18n/types";
 import {
-  adultPrice,
-  arrivalSlots,
-  assignTable,
-  biggestTable,
-  bookingWindow,
-  calendarCells,
-  childPrice,
-  logHouse,
-  sampleBusyDate,
-  type DayState,
-  type PartyReason,
-} from "@/mocks/house";
-import { houseView, useHouse } from "@/state/house-store";
+  ApiRefused,
+  checkAvailability,
+  createBooking,
+  getSchedule,
+  type BookingRow,
+} from "@/lib/api";
+import { calendarCells, type CalendarCell } from "@/lib/schedule";
 import { Stamp } from "./stamp";
 
 type Step = "date" | "time" | "party" | "details" | "done";
@@ -28,6 +23,11 @@ const slip = {
   center: { x: 0, opacity: 1 },
   exit: (direction: number) => ({ x: direction * -36, opacity: 0 }),
 };
+
+// Same logging convention as the API, so dev tools read one story.
+function logBook(action: string, detail: Record<string, unknown>) {
+  console.info(`[iturrieta] ${action}`, detail);
+}
 
 function partyLine(book: Copy["book"], adults: number, children: number) {
   const adultText = adults === 1 ? book.adultOne : fill(book.adultMany, { n: adults });
@@ -60,9 +60,11 @@ function monthSpan(today: string, locale: Locale) {
     year: "numeric",
     timeZone: "UTC",
   });
-  const labels = bookingWindow(today).map((iso) => {
-    const [year, month, day] = iso.split("-").map(Number);
-    return formatter.format(new Date(Date.UTC(year, month - 1, day)));
+  const from = new Date(`${today}T12:00:00Z`);
+  const labels = Array.from({ length: 28 }, (_, index) => {
+    const date = new Date(from);
+    date.setUTCDate(date.getUTCDate() + index);
+    return formatter.format(date);
   });
   return [...new Set(labels)]
     .map((label) => label.charAt(0).toUpperCase() + label.slice(1))
@@ -86,6 +88,7 @@ function FieldError({ message }: { message?: string }) {
   );
 }
 
+
 export function BookingFlow({
   locale,
   copy,
@@ -96,8 +99,6 @@ export function BookingFlow({
   today: string;
 }) {
   const reduce = useReducedMotion();
-  const { state: stored, addBooking } = useHouse();
-  const state = houseView(stored, today);
   const book = copy.book;
   const [step, setStep] = useState<Step>("date");
   const [direction, setDirection] = useState(1);
@@ -114,35 +115,57 @@ export function BookingFlow({
     phone?: string;
     email?: string;
   }>({});
-  const [tableId, setTableId] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<BookingRow | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [sending, setSending] = useState(false);
+  // The table the availability answer promised, shown on the details step.
+  const [tablePreview, setTablePreview] = useState<string | null>(null);
+  // A synchronous lock: React state updates do not land between two clicks in
+  // the same tick, so a ref is what really stops a double-submit from firing
+  // two POSTs and two tables.
+  const submitting = useRef(false);
+  const requestId = useRef<string | null>(null);
 
+  // The lunch rules come from the API, not from the mock, so the calendar,
+  // the chips, and the prices are whatever the owner has set.
+  const schedule = useQuery({ queryKey: ["schedule"], queryFn: getSchedule });
+  const rules = schedule.data;
   const seats = adults + children;
-  const total = adults * adultPrice + children * childPrice;
-  const cells = calendarCells(today, state);
-  const table = state.tables.find((item) => item.id === tableId);
+  const total = rules ? adults * rules.adultPrice + children * rules.childPrice : 0;
+  const grid = rules ? calendarCells(today, rules) : { cells: [] as (CalendarCell | null)[] };
 
   function go(next: Step, dir: 1 | -1) {
     setDirection(dir);
     setStep(next);
   }
 
-  function partyMessage(reason: PartyReason) {
+  // The API reason words turn into the copy lines. Day reasons only show up
+  // here when something changed between the calendar and the check.
+  function partyMessage(reason: string, maxParty?: number) {
     if (reason === "need-adult") return book.needAdult;
-    if (reason === "above-max") return fill(book.aboveMax, { max: state.maxParty });
-    if (reason === "no-table") {
-      return fill(book.noTable, { seats, largest: biggestTable(state.tables) });
+    if (reason === "above-max") {
+      const limit = maxParty ?? rules?.maxParty;
+      return limit === undefined
+        ? book.aboveMaxFallback
+        : fill(book.aboveMax, { max: limit });
     }
+    if (reason === "no-table") return fill(book.noTable, { seats });
+    if (reason === "request-conflict") return book.requestConflict;
+    if (reason === "past" || reason === "window" || reason === "shut" || reason === "closed") {
+      return book.chooseDay;
+    }
+    if (reason === "late") return book.chooseTime;
     return fill(book.full, { seats });
   }
 
-  function goNext() {
+  async function goNext() {
     if (step === "date") {
       if (!date) {
         setError(book.chooseDay);
         return;
       }
       setError("");
-      logHouse("date chosen", { date });
+      logBook("date chosen", { date });
       go("time", 1);
       return;
     }
@@ -153,23 +176,37 @@ export function BookingFlow({
         return;
       }
       setError("");
-      logHouse("arrival chosen", { date, time });
+      logBook("arrival chosen", { date, time });
       go("party", 1);
       return;
     }
 
     if (step === "party") {
-      if (!date) return;
-      const result = assignTable(today, date, seats, state);
-      if (!result.ok) {
-        setError(partyMessage(result.reason));
-        logHouse("party refused", { date, seats, reason: result.reason });
-        return;
+      if (!date || !time) return;
+      if (submitting.current) return;
+      submitting.current = true;
+      // The API answers with the table or the reason; the check at confirm is
+      // the same service, so this step can only be a preview.
+      setChecking(true);
+      try {
+        const answer = await checkAvailability({ date, time, adults, children });
+        if (answer.table) {
+          setError("");
+          setTablePreview(answer.table.name);
+          logBook("party accepted", { date, seats, table: answer.table.name });
+          go("details", 1);
+          return;
+        }
+        if (answer.reason) {
+          setError(partyMessage(answer.reason, answer.maxParty));
+          logBook("party refused", { date, seats, reason: answer.reason });
+        }
+      } catch {
+        setError(book.apiDown);
+      } finally {
+        setChecking(false);
+        submitting.current = false;
       }
-      setTableId(result.tableId);
-      setError("");
-      logHouse("party accepted", { date, seats, tableId: result.tableId });
-      go("details", 1);
       return;
     }
 
@@ -181,27 +218,37 @@ export function BookingFlow({
       };
       setFieldErrors(nextErrors);
       if (nextErrors.name || nextErrors.phone || nextErrors.email || !date || !time) return;
+      if (submitting.current) return;
 
-      const result = assignTable(today, date, seats, state);
-      if (!result.ok) {
-        setError(partyMessage(result.reason));
-        go("party", -1);
-        return;
+      submitting.current = true;
+      setSending(true);
+      try {
+        const done = await createBooking({
+          date,
+          time,
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
+          adults,
+          children,
+          requestId: requestId.current ?? (requestId.current = crypto.randomUUID()),
+        });
+        // The API runs the same checks again: another guest may have taken
+        // the table while the details were typed.
+        setConfirmed(done);
+        setError("");
+        go("done", 1);
+      } catch (caught) {
+        if (caught instanceof ApiRefused) {
+          setError(partyMessage(caught.reason, caught.maxParty));
+          go("party", -1);
+        } else {
+          setError(book.apiDown);
+        }
+      } finally {
+        setSending(false);
+        submitting.current = false;
       }
-
-      setTableId(result.tableId);
-      addBooking({
-        date,
-        time,
-        name: name.trim(),
-        phone: phone.trim(),
-        email: email.trim(),
-        adults,
-        children,
-        seats,
-        tableId: result.tableId,
-      });
-      go("done", 1);
     }
   }
 
@@ -214,6 +261,7 @@ export function BookingFlow({
   }
 
   function again() {
+    requestId.current = null;
     setDate(null);
     setTime(null);
     setAdults(2);
@@ -221,7 +269,7 @@ export function BookingFlow({
     setName("");
     setPhone("");
     setEmail("");
-    setTableId(null);
+    setConfirmed(null);
     setFieldErrors({});
     setError("");
     go("date", -1);
@@ -291,6 +339,8 @@ export function BookingFlow({
           </ol>
         )}
 
+        {schedule.isError && <FieldError message={book.apiDown} />}
+
         <div className="overflow-hidden [perspective:1400px]">
           <AnimatePresence mode="wait" custom={direction} initial={false}>
             <motion.div
@@ -321,7 +371,7 @@ export function BookingFlow({
                         {label}
                       </span>
                     ))}
-                    {cells.map((cell, index) => (
+                    {grid.cells.map((cell, index) => (
                       <div key={cell?.iso ?? `empty-${index}`} className="flex justify-center">
                         {cell ? (
                           <DayChip
@@ -331,7 +381,9 @@ export function BookingFlow({
                             today={today}
                             closedLabel={book.closed}
                             onPick={(iso) => {
+                              requestId.current = null;
                               setDate(iso);
+                              setTablePreview(null);
                               setError("");
                             }}
                           />
@@ -355,11 +407,8 @@ export function BookingFlow({
                       {book.shut}
                     </span>
                   </p>
-                  {date === sampleBusyDate(today) && (
-                    <p className="mt-3 text-sm text-haze">{book.busy}</p>
-                  )}
                   <FieldError message={error} />
-                  <StepActions book={book} onBack={null} />
+                  <StepActions book={book} onBack={null} busy={schedule.isPending} />
                 </form>
               )}
 
@@ -375,13 +424,15 @@ export function BookingFlow({
                   </p>
                   <p className="mt-2 text-haze">{book.timeHint}</p>
                   <div className="mt-6 flex flex-wrap gap-3">
-                    {arrivalSlots(state.lastArrival).map((slot) => (
+                    {(rules?.slots ?? []).map((slot) => (
                       <Stamp key={slot}>
                         <button
                           type="button"
                           aria-pressed={slot === time}
                           onClick={() => {
+                            requestId.current = null;
                             setTime(slot);
+                            setTablePreview(null);
                             setError("");
                           }}
                           className={`relative z-10 rounded-full px-4 py-2 font-serif text-xl transition-colors ${
@@ -396,7 +447,7 @@ export function BookingFlow({
                     ))}
                   </div>
                   <FieldError message={error} />
-                  <StepActions book={book} onBack={goBack} />
+                  <StepActions book={book} onBack={goBack} busy={schedule.isPending} />
                 </form>
               )}
 
@@ -409,42 +460,55 @@ export function BookingFlow({
                 >
                   <Counter
                     label={book.adults}
-                    price={`€${adultPrice}`}
+                    price={`€${rules?.adultPrice ?? 45}`}
                     value={adults}
                     minusLabel={book.fewerAdults}
                     plusLabel={book.moreAdults}
                     minusDisabled={adults <= 1}
                     plusDisabled={seats >= 16}
                     onMinus={() => {
+                      requestId.current = null;
                       setAdults((value) => Math.max(1, value - 1));
+                      setTablePreview(null);
                       setError("");
                     }}
                     onPlus={() => {
+                      requestId.current = null;
                       setAdults((value) => value + 1);
+                      setTablePreview(null);
                       setError("");
                     }}
                   />
                   <Counter
                     label={book.children}
-                    price={`€${childPrice}`}
+                    price={`€${rules?.childPrice ?? 16}`}
                     value={children}
                     minusLabel={book.fewerChildren}
                     plusLabel={book.moreChildren}
                     minusDisabled={children <= 0}
                     plusDisabled={seats >= 16}
                     onMinus={() => {
+                      requestId.current = null;
                       setChildren((value) => Math.max(0, value - 1));
+                      setTablePreview(null);
                       setError("");
                     }}
                     onPlus={() => {
+                      requestId.current = null;
                       setChildren((value) => value + 1);
+                      setTablePreview(null);
                       setError("");
                     }}
                   />
                   <p className="mt-5 font-serif text-2xl text-bark">{fill(book.seats, { n: seats })}</p>
                   <p className="mt-1 text-haze">{fill(book.priceNote, { total })}</p>
                   <FieldError message={error} />
-                  <StepActions book={book} onBack={goBack} />
+                  <StepActions
+                    book={book}
+                    onBack={goBack}
+                    busy={checking}
+                    actionLabel={checking ? book.checkingAvailability : book.next}
+                  />
                 </form>
               )}
 
@@ -455,12 +519,18 @@ export function BookingFlow({
                     goNext();
                   }}
                 >
+                  {tablePreview && (
+                    <p role="status" className="mb-5 border-l-2 border-pour pl-4 text-haze">
+                      {fill(book.tablePreview, { name: tablePreview })}
+                    </p>
+                  )}
                   <Field
                     label={book.name}
                     value={name}
                     autoComplete="name"
                     error={fieldErrors.name}
                     onChange={(value) => {
+                      requestId.current = null;
                       setName(value);
                       setFieldErrors((current) => ({ ...current, name: undefined }));
                     }}
@@ -472,6 +542,7 @@ export function BookingFlow({
                     inputMode="tel"
                     error={fieldErrors.phone}
                     onChange={(value) => {
+                      requestId.current = null;
                       setPhone(value);
                       setFieldErrors((current) => ({ ...current, phone: undefined }));
                     }}
@@ -483,37 +554,49 @@ export function BookingFlow({
                     inputMode="email"
                     error={fieldErrors.email}
                     onChange={(value) => {
+                      requestId.current = null;
                       setEmail(value);
                       setFieldErrors((current) => ({ ...current, email: undefined }));
                     }}
                   />
-                  <StepActions book={book} onBack={goBack} />
+                  <FieldError message={error} />
+                  <StepActions
+                    book={book}
+                    onBack={goBack}
+                    busy={sending}
+                    actionLabel={sending ? book.confirmingBooking : book.confirmBooking}
+                  />
                 </form>
               )}
 
-              {step === "done" && date && time && table && (
+              {step === "done" && date && time && confirmed && (
                 <div>
                   <p className="text-leaf">{book.confirmed}</p>
                   <h2 className="mt-2 font-serif text-4xl leading-tight text-bark sm:text-5xl">
                     {book.confirmedTitle}
                   </h2>
                   <p className="mt-4 max-w-md text-lg leading-7 text-haze">
-                    {fill(book.held, { name: name.trim() })}
+                    {fill(book.held, { name: confirmed.name })}
                   </p>
                   <span aria-hidden className="mt-6 block h-px bg-pour" />
                   <dl className="mt-6">
-                    <Row label={book.steps.date} value={formatLongDay(date, locale)} />
-                    <Row label={book.arrival} value={time} />
+                    <Row label={book.steps.date} value={formatLongDay(confirmed.date, locale)} />
+                    <Row label={book.arrival} value={confirmed.time} />
                     <Row
                       label={book.steps.party}
-                      value={partyLine(book, adults, children)}
+                      value={partyLine(book, confirmed.adults, confirmed.children)}
                     />
                     <Row
-                      label={fill(book.seats, { n: seats })}
-                      value={fill(book.tableLine, { name: table.name })}
+                      label={book.tableAssigned}
+                      value={fill(book.tableLine, { name: confirmed.table })}
                     />
                   </dl>
-                  <p className="mt-4 text-haze">{fill(book.priceNote, { total })}</p>
+                  <p className="mt-4 text-haze">
+                    {fill(book.priceNote, {
+                      total: confirmed.adults * (rules?.adultPrice ?? 45) +
+                        confirmed.children * (rules?.childPrice ?? 16),
+                    })}
+                  </p>
                   <div className="mt-8">
                     <Stamp>
                       <button
@@ -536,6 +619,9 @@ export function BookingFlow({
   );
 }
 
+// While the schedule is still loading the calendar is not ready; the step
+// button waits instead of offering an empty grid.
+
 function DayChip({
   iso,
   state,
@@ -545,7 +631,7 @@ function DayChip({
   onPick,
 }: {
   iso: string;
-  state: DayState;
+  state: CalendarCell["state"];
   selected: boolean;
   today: string;
   closedLabel: string;
@@ -698,9 +784,13 @@ function Field({
 function StepActions({
   book,
   onBack,
+  busy,
+  actionLabel,
 }: {
   book: Copy["book"];
   onBack: (() => void) | null;
+  busy: boolean;
+  actionLabel?: string;
 }) {
   return (
     <div className="mt-8 flex items-center justify-between gap-4">
@@ -715,12 +805,14 @@ function StepActions({
       ) : (
         <span />
       )}
-      <Stamp>
+      <Stamp disabled={busy}>
         <button
           type="submit"
-          className="relative z-10 rounded-full bg-leaf px-6 py-3 text-foam"
+          disabled={busy}
+          aria-busy={busy}
+          className="relative z-10 rounded-full bg-leaf px-6 py-3 text-foam disabled:text-foam/70"
         >
-          {book.next}
+          {actionLabel ?? book.next}
         </button>
       </Stamp>
     </div>

@@ -22,6 +22,7 @@ export function SiteHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
     { href: `/${locale}#menu`, label: copy.nav.menu },
     { href: `/${locale}#gatherings`, label: copy.nav.gatherings },
   ];
+  const adminHref = `/${locale}/admin`;
 
   function go(href: string) {
     setOpen(false);
@@ -55,6 +56,12 @@ export function SiteHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
             ))}
           </nav>
           <LanguageSwitch locale={locale} />
+          <Link
+            href={adminHref}
+            className="rounded-full border border-bark/25 px-4 py-2 text-sm text-bark transition-colors hover:bg-bark/5 focus-visible:outline-leaf"
+          >
+            {copy.nav.admin}
+          </Link>
           <SealLink href={`/${locale}/book`} tone="apple" className="px-4 py-2 text-sm">
             {copy.nav.book}
           </SealLink>
@@ -96,6 +103,16 @@ export function SiteHeader({ locale, copy }: { locale: Locale; copy: Copy }) {
               <div className="px-1 py-3">
                 <LanguageSwitch locale={locale} />
               </div>
+              <Link
+                href={adminHref}
+                className="mt-1 w-full rounded-full border border-bark/25 px-4 py-2.5 text-center text-sm text-bark"
+                onClick={(event) => {
+                  event.preventDefault();
+                  go(adminHref);
+                }}
+              >
+                {copy.nav.admin}
+              </Link>
               <SealLink href={`/${locale}/book`} tone="apple" className="mt-1 w-full">
                 {copy.nav.book}
               </SealLink>
